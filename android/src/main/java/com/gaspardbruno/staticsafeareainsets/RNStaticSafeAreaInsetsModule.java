@@ -11,12 +11,16 @@ import com.facebook.react.uimanager.PixelUtil;
 import java.util.Map;
 import java.util.HashMap;
 
+import android.util.Log;
 import android.view.WindowInsets;
 import android.view.View;
 import android.view.WindowInsetsController;
 import android.os.Build;
 import android.app.Activity;
-import android.graphics.Insets;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.ViewCompat;
 
 public class RNStaticSafeAreaInsetsModule extends ReactContextBaseJavaModule {
 
@@ -40,42 +44,41 @@ public class RNStaticSafeAreaInsetsModule extends ReactContextBaseJavaModule {
   private Map<String, Object> _getSafeAreaInsets() {
     final Map<String, Object> constants = new HashMap<>();
 
-    if (getCurrentActivity() != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      final Activity activity = getCurrentActivity();
-      final View view = activity.getWindow().getDecorView();
-      final WindowInsets insets = view.getRootWindowInsets();
+    Activity activity = getCurrentActivity();
+    if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        final View view = activity.getWindow().getDecorView();
+        final WindowInsetsCompat insetsCompat = ViewCompat.getRootWindowInsets(view);
 
-      final Boolean isFullscreen = (view.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_IMMERSIVE) == View.SYSTEM_UI_FLAG_IMMERSIVE;
+        final boolean isFullscreen =
+                (view.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_IMMERSIVE)
+                        == View.SYSTEM_UI_FLAG_IMMERSIVE;
 
-      if (insets != null && isFullscreen) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-          final Insets insets30 = insets.getInsets(WindowInsets.Type.systemGestures());
+        if (insetsCompat != null) {
+            final Insets sysBars = insetsCompat.getInsets(WindowInsetsCompat.Type.systemBars());
+            float top = PixelUtil.toDIPFromPixel(sysBars.top);
+            float bottom = PixelUtil.toDIPFromPixel(sysBars.bottom);
+            float left = PixelUtil.toDIPFromPixel(sysBars.left);
+            float right = PixelUtil.toDIPFromPixel(sysBars.right);
 
-          constants.put("safeAreaInsetsTop", (float) insets30.top);
-          constants.put("safeAreaInsetsBottom", (float) insets30.bottom);
-          constants.put("safeAreaInsetsLeft", (float) insets30.left);
-          constants.put("safeAreaInsetsRight", (float) insets30.right);
+            constants.put("safeAreaInsetsTop", top);
+            constants.put("safeAreaInsetsBottom", bottom);
+            constants.put("safeAreaInsetsLeft", left);
+            constants.put("safeAreaInsetsRight", right);
         } else {
-          constants.put("safeAreaInsetsTop", PixelUtil.toDIPFromPixel(insets.getSystemWindowInsetTop()));
-          constants.put("safeAreaInsetsBottom", PixelUtil.toDIPFromPixel(insets.getSystemWindowInsetBottom()));
-          constants.put("safeAreaInsetsLeft", PixelUtil.toDIPFromPixel(insets.getSystemWindowInsetLeft()));
-          constants.put("safeAreaInsetsRight", PixelUtil.toDIPFromPixel(insets.getSystemWindowInsetRight()));
+            constants.put("safeAreaInsetsTop", 0f);
+            constants.put("safeAreaInsetsBottom", 0f);
+            constants.put("safeAreaInsetsLeft", 0f);
+            constants.put("safeAreaInsetsRight", 0f);
         }
-      } else {
+    } else {
         constants.put("safeAreaInsetsTop", 0f);
         constants.put("safeAreaInsetsBottom", 0f);
         constants.put("safeAreaInsetsLeft", 0f);
         constants.put("safeAreaInsetsRight", 0f);
-      }
-    } else {
-      constants.put("safeAreaInsetsTop", 0f);
-      constants.put("safeAreaInsetsBottom", 0f);
-      constants.put("safeAreaInsetsLeft", 0f);
-      constants.put("safeAreaInsetsRight", 0f);
     }
 
     return constants;
-  }
+}
 
   @ReactMethod
   public void getSafeAreaInsets(Callback cb) {
