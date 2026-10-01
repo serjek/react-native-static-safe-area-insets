@@ -5,7 +5,7 @@
   "description": "React Native package that exposed the Safe Area insets as constants",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --experimental-vm-modules --test test/*.test.cjs"
   },
   "repository": {
     "type": "git",

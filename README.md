@@ -51,6 +51,26 @@ StaticSafeAreaInsets.getSafeAreaInsets((values) => {
 })
 ```
 
+### Android Insets Changes
+
+On Android, system-bar visibility and navigation mode can change after a
+dimensions event. Subscribe to receive the first available insets and later
+changes, including display cutouts. Values use density-independent pixels,
+rounded up; the keyboard is excluded.
+
+```javascript
+const subscription = StaticSafeAreaInsets.addSafeAreaInsetsListener((values) => {
+  // Update your layout with values.safeAreaInsetsTop, etc.
+});
+
+// When the consumer unmounts:
+subscription.remove();
+```
+
+This subscription is safe to call on iOS, where it returns a no-op subscription.
+Continue calling `getSafeAreaInsets` on dimensions changes for iOS. The existing
+constants remain startup snapshots; `getSafeAreaInsets` remains a one-shot read.
+
 ## Roadmap
 - Continue to support iOS & Android API updates
 
