@@ -1,34 +1,37 @@
 package com.gaspardbruno.staticsafeareainsets;
 
+import android.app.Activity;
+import android.view.View;
+import android.view.ViewTreeObserver;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+
+import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.WritableNativeMap;
-import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.UiThreadUtil;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.uimanager.PixelUtil;
 
-import java.util.Map;
 import java.util.HashMap;
+import java.util.Map;
 
-import android.util.Log;
-import android.view.WindowInsets;
-import android.view.View;
-import android.view.WindowInsetsController;
-import android.os.Build;
-import android.app.Activity;
+public class RNStaticSafeAreaInsetsModule extends ReactContextBaseJavaModule
+    implements LifecycleEventListener, ViewTreeObserver.OnPreDrawListener {
 
-import androidx.core.graphics.Insets;
-import androidx.core.view.WindowInsetsCompat;
-import androidx.core.view.ViewCompat;
-
-public class RNStaticSafeAreaInsetsModule extends ReactContextBaseJavaModule {
-
-  private final ReactApplicationContext reactContext;
+  private static final String INSETS_CHANGED = "RNStaticSafeAreaInsetsChanged";
+  private int listenerCount;
+  private View observedView;
+  private Insets lastInsets;
 
   public RNStaticSafeAreaInsetsModule(ReactApplicationContext reactContext) {
     super(reactContext);
-    this.reactContext = reactContext;
+    reactContext.addLifecycleEventListener(this);
   }
 
   @Override
@@ -36,60 +39,124 @@ public class RNStaticSafeAreaInsetsModule extends ReactContextBaseJavaModule {
     return "RNStaticSafeAreaInsets";
   }
 
-  @Override
-  public Map<String, Object> getConstants() {
-    return this._getSafeAreaInsets();
+  private View getDecorView() {
+    Activity activity = getReactApplicationContext().getCurrentActivity();
+    return activity == null ? null : activity.getWindow().getDecorView();
   }
 
-  private Map<String, Object> _getSafeAreaInsets() {
-    final Map<String, Object> constants = new HashMap<>();
+  private Insets getInsets(View view) {
+    WindowInsetsCompat insets = view == null ? null : ViewCompat.getRootWindowInsets(view);
+    return insets == null ? null : insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+  }
 
-    Activity activity = getCurrentActivity();
-    if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        final View view = activity.getWindow().getDecorView();
-        final WindowInsetsCompat insetsCompat = ViewCompat.getRootWindowInsets(view);
-
-        final boolean isFullscreen =
-                (view.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_IMMERSIVE)
-                        == View.SYSTEM_UI_FLAG_IMMERSIVE;
-
-        if (insetsCompat != null) {
-            final Insets sysBars = insetsCompat.getInsets(WindowInsetsCompat.Type.systemBars());
-            float top = PixelUtil.toDIPFromPixel(sysBars.top);
-            float bottom = PixelUtil.toDIPFromPixel(sysBars.bottom);
-            float left = PixelUtil.toDIPFromPixel(sysBars.left);
-            float right = PixelUtil.toDIPFromPixel(sysBars.right);
-
-            constants.put("safeAreaInsetsTop", top);
-            constants.put("safeAreaInsetsBottom", bottom);
-            constants.put("safeAreaInsetsLeft", left);
-            constants.put("safeAreaInsetsRight", right);
-        } else {
-            constants.put("safeAreaInsetsTop", 0f);
-            constants.put("safeAreaInsetsBottom", 0f);
-            constants.put("safeAreaInsetsLeft", 0f);
-            constants.put("safeAreaInsetsRight", 0f);
-        }
-    } else {
-        constants.put("safeAreaInsetsTop", 0f);
-        constants.put("safeAreaInsetsBottom", 0f);
-        constants.put("safeAreaInsetsLeft", 0f);
-        constants.put("safeAreaInsetsRight", 0f);
+  private Map<String, Object> toMap(Insets insets) {
+    if (insets == null) {
+      insets = Insets.NONE;
     }
+    Map<String, Object> values = new HashMap<>();
+    // Round outward so a fractional DIP never leaves part of a bar or cutout uncovered.
+    values.put("safeAreaInsetsTop", (int) Math.ceil(PixelUtil.toDIPFromPixel(insets.top)));
+    values.put("safeAreaInsetsBottom", (int) Math.ceil(PixelUtil.toDIPFromPixel(insets.bottom)));
+    values.put("safeAreaInsetsLeft", (int) Math.ceil(PixelUtil.toDIPFromPixel(insets.left)));
+    values.put("safeAreaInsetsRight", (int) Math.ceil(PixelUtil.toDIPFromPixel(insets.right)));
+    return values;
+  }
 
-    return constants;
-}
+  @Override
+  public Map<String, Object> getConstants() {
+    return toMap(getInsets(getDecorView()));
+  }
 
   @ReactMethod
   public void getSafeAreaInsets(Callback cb) {
-    Map<String, Object> constants = this._getSafeAreaInsets();
-    WritableMap map = new WritableNativeMap();
+    UiThreadUtil.runOnUiThread(() -> {
+      Insets insets = getInsets(getDecorView());
+      // A temporarily unavailable window must not overwrite a valid observed value with zero.
+      if (insets == null) {
+        insets = lastInsets;
+      }
+      maybeEmitInsets(insets);
+      cb.invoke(Arguments.makeNativeMap(toMap(insets)));
+    });
+  }
 
-    map.putInt("safeAreaInsetsTop", ((Float) constants.get("safeAreaInsetsTop")).intValue());
-    map.putInt("safeAreaInsetsBottom", ((Float) constants.get("safeAreaInsetsBottom")).intValue());
-    map.putInt("safeAreaInsetsLeft", ((Float) constants.get("safeAreaInsetsLeft")).intValue());
-    map.putInt("safeAreaInsetsRight", ((Float) constants.get("safeAreaInsetsRight")).intValue());
+  @ReactMethod
+  public void addListener(String eventName) {
+    if (!INSETS_CHANGED.equals(eventName)) {
+      return;
+    }
+    UiThreadUtil.runOnUiThread(() -> {
+      listenerCount++;
+      startObserving();
+    });
+  }
 
-    cb.invoke(map);
+  @ReactMethod
+  public void removeListeners(double count) {
+    UiThreadUtil.runOnUiThread(() -> {
+      listenerCount = Math.max(0, listenerCount - (int) count);
+      if (listenerCount == 0) {
+        stopObserving();
+      }
+    });
+  }
+
+  private void startObserving() {
+    View view = getDecorView();
+    if (listenerCount == 0 || view == null || view == observedView) {
+      return;
+    }
+    stopObserving();
+    observedView = view;
+    view.getViewTreeObserver().addOnPreDrawListener(this);
+    // Observe rather than replace the app's window-insets listener.
+    ViewCompat.requestApplyInsets(view);
+    view.invalidate();
+  }
+
+  private void stopObserving() {
+    if (observedView != null && observedView.getViewTreeObserver().isAlive()) {
+      observedView.getViewTreeObserver().removeOnPreDrawListener(this);
+    }
+    observedView = null;
+    lastInsets = null;
+  }
+
+  @Override
+  public boolean onPreDraw() {
+    maybeEmitInsets(getInsets(observedView));
+    return true;
+  }
+
+  private void maybeEmitInsets(Insets insets) {
+    if (listenerCount > 0 && insets != null && !insets.equals(lastInsets)) {
+      lastInsets = insets;
+      getReactApplicationContext()
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+          .emit(INSETS_CHANGED, Arguments.makeNativeMap(toMap(insets)));
+    }
+  }
+
+  @Override
+  public void onHostResume() {
+    startObserving();
+  }
+
+  @Override
+  public void onHostPause() {
+    stopObserving();
+  }
+
+  @Override
+  public void onHostDestroy() {
+    stopObserving();
+  }
+
+  @Override
+  public void invalidate() {
+    getReactApplicationContext().removeLifecycleEventListener(this);
+    UiThreadUtil.runOnUiThread(this::stopObserving);
+    super.invalidate();
   }
 }

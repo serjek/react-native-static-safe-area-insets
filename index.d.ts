@@ -10,6 +10,12 @@ declare module 'react-native-static-safe-area-insets' {
       safeAreaInsetsLeft: number;
       safeAreaInsetsRight: number;
     }) => void): void;
+    public static addSafeAreaInsetsListener(callback:(insets:{
+      safeAreaInsetsTop: number;
+      safeAreaInsetsBottom: number;
+      safeAreaInsetsLeft: number;
+      safeAreaInsetsRight: number;
+    }) => void): { remove(): void };
   }
 
   export default StaticSafeAreaInsets;
