@@ -4,17 +4,20 @@ const path = require('node:path');
 const { test } = require('node:test');
 const vm = require('node:vm');
 
-async function load(platform) {
+async function load(platform, inherited = true) {
   const nativeListeners = new Set();
   const callbacks = new Set();
   const values = { safeAreaInsetsTop: 29, safeAreaInsetsBottom: 16,
     safeAreaInsetsLeft: 0, safeAreaInsetsRight: 0 };
-  const nativeModule = {
+  // TurboModuleBinding returns an initially empty object whose prototype exposes
+  // native methods and constants. Object spread cannot copy those properties.
+  const nativeProperties = {
     ...values,
     getSafeAreaInsets(callback) { callback(values); },
     addListener(event) { nativeListeners.add(event); },
     removeListeners() { nativeListeners.clear(); },
   };
+  const nativeModule = inherited ? Object.create(nativeProperties) : nativeProperties;
   let emitterCount = 0;
   class NativeEventEmitter {
     constructor(module) {
@@ -72,4 +75,17 @@ test('iOS keeps the existing callback without registering unsupported native eve
   const subscription = api.addSafeAreaInsetsListener(() => assert.fail('Unexpected event'));
   subscription.remove();
   assert.equal(nativeListeners.size, 0);
+});
+
+test('legacy modules with enumerable own properties keep their native API', async () => {
+  for (const platform of ['android', 'ios']) {
+    const { api, values } = await load(platform, false);
+    assert.equal(api.safeAreaInsetsTop, values.safeAreaInsetsTop);
+    assert.equal(api.safeAreaInsetsBottom, values.safeAreaInsetsBottom);
+    assert.equal(api.safeAreaInsetsLeft, values.safeAreaInsetsLeft);
+    assert.equal(api.safeAreaInsetsRight, values.safeAreaInsetsRight);
+    let reads = 0;
+    api.getSafeAreaInsets((insets) => { assert.equal(insets, values); reads++; });
+    assert.equal(reads, 1);
+  }
 });
